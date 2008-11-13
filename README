@@ -1,0 +1,7 @@
+1. Install Erlang/OTP
+
+2. Install erlang sdl bindings
+
+3. make
+
+4. make run
