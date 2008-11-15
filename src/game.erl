@@ -74,7 +74,7 @@ tick(Game = #game{current_piece = Piece,
         false ->
             Game#game{current_piece = NewPiece};
         _ ->
-            NewGround = [{Coord, g} || Coord <- piece:blocks(Piece)] ++ Ground,
+            NewGround = merge(piece:blocks(Piece), Ground, Width),
             Game#game{current_piece = NextPiece,
                       next_piece = piece:translate(piece:new(),
                                                    {round(Width/2), 0}),
@@ -86,3 +86,24 @@ hit(Coord = {_X, Y}, #game{height = Height, ground = Ground}) ->
 
 outside({X, _Y}, #game{width = Width}) ->
     (X < 0) or (X >= Width + 1).
+
+merge(Blocks, Ground, Width) ->
+    NewGround = [{Coord, g} || Coord <- Blocks] ++ Ground,
+    case collect(NewGround, Width) of
+        [] ->
+            NewGround;
+        Rows ->
+            NewGround -- Rows
+    end.
+
+collect([], _Width) ->
+    [];
+collect([Block0 | Blocks], Width) ->
+    {{_, Y}, _} = Block0,
+    Row = [Block || {{_, Y1}, _} = Block <- Blocks, Y1 == Y],
+    case length(Row) of
+        Width ->
+            [Block0 | Row ++ collect(Blocks -- Row, Width)];
+        _ ->
+            collect(Blocks -- Row, Width)
+    end.
