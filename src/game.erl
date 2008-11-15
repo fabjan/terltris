@@ -93,7 +93,7 @@ merge(Blocks, Ground, Width) ->
         [] ->
             NewGround;
         Rows ->
-            NewGround -- Rows
+            chomp(NewGround -- lists:flatten(Rows), Rows)
     end.
 
 collect([], _Width) ->
@@ -103,7 +103,29 @@ collect([Block0 | Blocks], Width) ->
     Row = [Block || {{_, Y1}, _} = Block <- Blocks, Y1 == Y],
     case length(Row) of
         Width ->
-            [Block0 | Row ++ collect(Blocks -- Row, Width)];
+            [[Block0 | Row] | collect(Blocks -- Row, Width)];
         _ ->
             collect(Blocks -- Row, Width)
+    end.
+
+chomp([], _Rows) ->
+    [];
+chomp([Block | Ground], Rows) ->
+    case lower(Rows, Block) of
+        true ->
+            {{X,Y}, Shape} = Block,
+            NBlock = {{X, Y - 1}, Shape};
+        _ ->
+            NBlock = Block
+    end,
+    [NBlock | chomp(Ground, Rows)].
+
+lower([],  _Block) ->
+    false;
+lower([[ {{_X, Y}, _S} | _Row] | Rows], Block = {{_X1, Y1}, _S1}) ->
+    case Y < Y1 of
+        true ->
+            true;
+        _ ->
+            lower(Rows, Block)
     end.
