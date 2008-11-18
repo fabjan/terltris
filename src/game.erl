@@ -74,7 +74,7 @@ tick(Game = #game{current_piece = Piece,
         false ->
             Game#game{current_piece = NewPiece};
         _ ->
-            NewGround = merge(piece:blocks(Piece), Ground, Width),
+            NewGround = merge(Piece, Ground, Width),
             Game#game{current_piece = NextPiece,
                       next_piece = piece:translate(piece:new(),
                                                    {round(Width/2), 0}),
@@ -87,13 +87,18 @@ hit(Coord = {_X, Y}, #game{height = Height, ground = Ground}) ->
 outside({X, _Y}, #game{width = Width}) ->
     (X < 0) or (X >= Width + 1).
 
-merge(Blocks, Ground, Width) ->
-    NewGround = [{Coord, g} || Coord <- Blocks] ++ Ground,
+merge(Piece, Ground, Width) ->
+    Shape = piece:shape(Piece),
+    NewGround = [{Coord, Shape} || Coord <- piece:blocks(Piece)] ++ Ground,
     case collect(NewGround, Width) of
         [] ->
             NewGround;
         Rows ->
-            chomp(NewGround -- lists:flatten(Rows), Rows)
+            chomp(NewGround -- lists:flatten(Rows),
+                  lists:sort(fun({{_, Y1}, _},
+                                 {{_, Y2}, _}) ->
+                                     Y1 > Y2 end,
+                             [hd(Row) || Row <- Rows]))
     end.
 
 collect([], _Width) ->
@@ -108,24 +113,18 @@ collect([Block0 | Blocks], Width) ->
             collect(Blocks -- Row, Width)
     end.
 
-chomp([], _Rows) ->
-    [];
-chomp([Block | Ground], Rows) ->
-    case lower(Rows, Block) of
-        true ->
-            {{X,Y}, Shape} = Block,
-            NBlock = {{X, Y - 1}, Shape};
-        _ ->
-            NBlock = Block
-    end,
-    [NBlock | chomp(Ground, Rows)].
+chomp(Blocks, []) ->
+    Blocks;
+chomp(Blocks, [Row | Rows]) ->
+    chomp(fall(Blocks, Row), Rows).
 
-lower([],  _Block) ->
-    false;
-lower([[ {{_X, Y}, _S} | _Row] | Rows], Block = {{_X1, Y1}, _S1}) ->
-    case Y < Y1 of
-        true ->
-            true;
-        _ ->
-            lower(Rows, Block)
-    end.
+fall(Blocks, Row = {{_RX, RY}, _RS}) ->
+    lists:map(fun({{BX, BY}, BS}) ->
+                      case BY >= RY of
+                          true ->
+                              {{BX, BY - 1}, BS};
+                          _ ->
+                              {{BX, BY}, BS}
+                          end
+              end,
+              Blocks).
