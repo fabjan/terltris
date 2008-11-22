@@ -3,7 +3,8 @@
 
 -compile(export_all).
 
--record(game, {width, height, next_piece, current_piece, ground, score = 0}).
+-record(game, {width, height, next_piece, current_piece, ground,
+               level = 0, next_level = 10, score = 0, live = yes}).
 
 width(#game{width = Width}) ->
     Width.
@@ -13,6 +14,10 @@ next(#game{next_piece = Next}) ->
     Next.
 score(#game{score = Score}) ->
     Score.
+level(#game{level = Level}) ->
+    Level.
+live(#game{live = Live}) ->
+    Live.
 
 new(Width, Height)
   when Width > 4, Height > 4 ->
@@ -38,6 +43,8 @@ get_block(Game, Coord) ->
             undefined
     end.
 
+move_left(Game = #game{live = no}) ->
+    Game;
 move_left(Game = #game{current_piece = Piece}) ->
     NewPiece = piece:translate(Piece, {-1, 0}),
     case lists:any(fun(Coord) -> outside(Coord, Game) or hit(Coord, Game) end,
@@ -48,6 +55,8 @@ move_left(Game = #game{current_piece = Piece}) ->
             Game
     end.
 
+move_right(Game = #game{live = no}) ->
+    Game;
 move_right(Game = #game{current_piece = Piece}) ->
     NewPiece = piece:translate(Piece, {1, 0}),
     case lists:any(fun(Coord) -> outside(Coord, Game) or hit(Coord, Game) end,
@@ -58,6 +67,8 @@ move_right(Game = #game{current_piece = Piece}) ->
             Game
     end.
 
+rotate(Game = #game{live = no}) ->
+    Game;
 rotate(Game = #game{current_piece = Piece}) ->
     NewPiece = piece:rotate(Piece, r),
     case lists:any(fun(Coord) -> outside(Coord, Game) or hit(Coord, Game) end,
@@ -68,11 +79,16 @@ rotate(Game = #game{current_piece = Piece}) ->
             Game
     end.
 
+tick(Game = #game{live = no}) ->
+    Game;
+tick(Game = #game{next_level = 0, level = Level}) ->
+    Game#game{next_level = 10, level = Level + 1};
 tick(Game = #game{current_piece = Piece,
                   next_piece = NextPiece,
                   ground = Ground,
                   width = Width,
-                  score = Score}) ->
+                  score = Score,
+                  next_level = NextLevel}) ->
     NewPiece = piece:translate(Piece, {0, -1}),
     case lists:any(fun(Coord) -> hit(Coord, Game) end,
                    piece:blocks(NewPiece)) of
@@ -80,11 +96,18 @@ tick(Game = #game{current_piece = Piece,
             Game#game{current_piece = NewPiece};
         _ ->
             {NewGround, Points} = merge(Piece, Ground, Width),
-            Game#game{current_piece = NextPiece,
-                      next_piece = piece:translate(piece:new(),
-                                                   {round(Width/2), 0}),
-                      ground = NewGround,
-                      score = Score + Points}
+            case lists:any(fun({{_X, Y}, _S}) -> Y >= 0 end,
+                           NewGround) of
+                false ->
+                    Game#game{current_piece = NextPiece,
+                              next_piece = piece:translate(piece:new(),
+                                                           {round(Width/2), 0}),
+                              ground = NewGround,
+                              next_level = NextLevel - 1,
+                              score = Score + Points};
+                _ ->
+                    Game#game{live = no}
+            end
     end.
 
 hit(Coord = {_X, Y}, #game{height = Height, ground = Ground}) ->
