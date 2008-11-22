@@ -3,12 +3,16 @@
 
 -compile(export_all).
 
--record(game, {width, height, next_piece, current_piece, ground}).
+-record(game, {width, height, next_piece, current_piece, ground, score = 0}).
 
 width(#game{width = Width}) ->
     Width.
 height(#game{height = Height}) ->
     Height.
+next(#game{next_piece = Next}) ->
+    Next.
+score(#game{score = Score}) ->
+    Score.
 
 new(Width, Height)
   when Width > 4, Height > 4 ->
@@ -67,38 +71,41 @@ rotate(Game = #game{current_piece = Piece}) ->
 tick(Game = #game{current_piece = Piece,
                   next_piece = NextPiece,
                   ground = Ground,
-                  width = Width}) ->
+                  width = Width,
+                  score = Score}) ->
     NewPiece = piece:translate(Piece, {0, -1}),
     case lists:any(fun(Coord) -> hit(Coord, Game) end,
                    piece:blocks(NewPiece)) of
         false ->
             Game#game{current_piece = NewPiece};
         _ ->
-            NewGround = merge(Piece, Ground, Width),
+            {NewGround, Points} = merge(Piece, Ground, Width),
             Game#game{current_piece = NextPiece,
                       next_piece = piece:translate(piece:new(),
                                                    {round(Width/2), 0}),
-                      ground = NewGround}
+                      ground = NewGround,
+                      score = Score + Points}
     end.
 
 hit(Coord = {_X, Y}, #game{height = Height, ground = Ground}) ->
-    lists:keymember(Coord, 1, Ground) or (Height + Y < 0).
+    lists:keymember(Coord, 1, Ground) or (Height + Y < 1).
 
 outside({X, _Y}, #game{width = Width}) ->
-    (X < 0) or (X >= Width + 1).
+    (X < 0) or (X >= Width).
 
 merge(Piece, Ground, Width) ->
     Shape = piece:shape(Piece),
     NewGround = [{Coord, Shape} || Coord <- piece:blocks(Piece)] ++ Ground,
     case collect(NewGround, Width) of
         [] ->
-            NewGround;
+            {NewGround, 0};
         Rows ->
-            chomp(NewGround -- lists:flatten(Rows),
-                  lists:sort(fun({{_, Y1}, _},
-                                 {{_, Y2}, _}) ->
-                                     Y1 > Y2 end,
-                             [hd(Row) || Row <- Rows]))
+            {chomp(NewGround -- lists:flatten(Rows),
+                   lists:sort(fun({{_, Y1}, _},
+                                  {{_, Y2}, _}) ->
+                                      Y1 > Y2 end,
+                              [hd(Row) || Row <- Rows])),
+             round(math:pow(length(Rows), 2))}
     end.
 
 collect([], _Width) ->
@@ -107,7 +114,7 @@ collect([Block0 | Blocks], Width) ->
     {{_, Y}, _} = Block0,
     Row = [Block || {{_, Y1}, _} = Block <- Blocks, Y1 == Y],
     case length(Row) of
-        Width ->
+        L when L == (Width - 1) ->
             [[Block0 | Row] | collect(Blocks -- Row, Width)];
         _ ->
             collect(Blocks -- Row, Width)
