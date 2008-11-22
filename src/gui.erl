@@ -158,6 +158,8 @@ handle_event(State = #state{game = Game}) ->
                     State#state{game = game:rotate(Game)};
                 ?SDLK_DOWN ->
                     State#state{delay = 0};
+                ?SDLK_SPACE ->
+                    State#state{game = game:drop(Game)};
                 _ ->
                     State
             end;

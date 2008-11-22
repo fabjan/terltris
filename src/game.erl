@@ -158,3 +158,13 @@ fall(Blocks, Row = {{_RX, RY}, _RS}) ->
                           end
               end,
               Blocks).
+
+drop(Game = #game{current_piece = Piece}) ->
+    NewPiece = piece:translate(Piece, {0, -1}),
+    case lists:any(fun(Coord) -> hit(Coord, Game) end,
+                   piece:blocks(NewPiece)) of
+        false ->
+            drop(Game#game{current_piece = NewPiece});
+        _ ->
+            tick(Game)
+    end.
