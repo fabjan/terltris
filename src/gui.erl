@@ -9,7 +9,7 @@
 
 -compile(export_all).
 
--record(state, {window, game, sprites, font, delay0 = 10, delay = 0}).
+-record(state, {window, game, sprites, font, delay = 0}).
 
 -define(WIDTH, 480).
 -define(HEIGHT, 640).
@@ -25,6 +25,9 @@ init(Width, Height) ->
             {A, B, C} = now(), random:seed(A, B, C),
             Game = game:new(Width, Height),
             Sprites = load_sprites([g,i,j,l,o,s,t,z]),
+            [sdl_video:setColorKey(Sprite, ?SDL_SRCCOLORKEY,
+                                   sdl_video:mapRGB(Sprite, 0, 0, 0)) ||
+                {_Shape, Sprite} <- Sprites],
             Font = load_font("mario3.bmp"),
             sdl_video:setColorKey(Font, ?SDL_SRCCOLORKEY,
                                   sdl_video:mapRGB(Font, 255, 0, 255)),
@@ -60,8 +63,9 @@ loop(State) ->
     case NewState of
         quit ->
             ok;
-        #state{delay0 = Delay, delay = 0, game = NewGame} ->
-            loop(NewState#state{delay = Delay, game = game:tick(NewGame)});
+        #state{delay = 0, game = NewGame} ->
+            loop(NewState#state{delay = delay(game:level(NewGame)),
+                                game = game:tick(NewGame)});
         #state{delay = Delay} ->
             loop(NewState#state{delay = Delay - 1})
     end.
@@ -78,8 +82,17 @@ render(#state{window = Window, game = Game,
                   game:blocks(Game) ++
                   [{Coord, NextShape} ||
                       Coord <- piece:blocks(piece:translate(NextPiece, {6,-2}))]),
+    draw_string("LEVEL: " ++ integer_to_list(game:level(Game)),
+                Font, 352, 192, Window),
     draw_string("SCORE: " ++ integer_to_list(game:score(Game)),
-                Font, 320, 160, Window),
+                Font, 352, 201, Window),
+    case game:live(Game) of
+        no ->
+            draw_string("GAME OVER MAN",
+                        Font, 352, 210, Window);
+        _ ->
+            ok
+    end,    
     sdl_video:flip(Window).
 
 origin(Width, Height) ->
@@ -151,4 +164,12 @@ handle_event(State = #state{game = Game}) ->
         _ ->
             timer:sleep(10),
             State
+    end.
+
+delay(Level) ->
+    case 20 - Level of
+        NewDelay when NewDelay < 0 ->
+            0;
+        NewDelay ->
+            NewDelay
     end.
