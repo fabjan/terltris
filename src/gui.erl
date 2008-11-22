@@ -9,10 +9,10 @@
 
 -compile(export_all).
 
--record(state, {window, game, sprites, delay0 = 10, delay = 0}).
+-record(state, {window, game, sprites, font, delay0 = 10, delay = 0}).
 
--define(WIDTH, 400).
--define(HEIGHT, 800).
+-define(WIDTH, 480).
+-define(HEIGHT, 640).
 -define(BPP, 24).
 
 init(Width, Height) ->
@@ -25,23 +25,31 @@ init(Width, Height) ->
             {A, B, C} = now(), random:seed(A, B, C),
             Game = game:new(Width, Height),
             Sprites = load_sprites([g,i,j,l,o,s,t,z]),
-            loop(#state{window = Window, game = Game, sprites = Sprites}),
+            Font = load_font("mario3.bmp"),
+            sdl_video:setColorKey(Font, ?SDL_SRCCOLORKEY,
+                                  sdl_video:mapRGB(Font, 255, 0, 255)),
+            loop(#state{window = Window, game = Game,
+                        sprites = Sprites, font = Font}),
             sdl:quit()
     end.
 
 init_video() ->
+    io:format("Initializing SDL.", []),
     sdl:init(?SDL_INIT_VIDEO),
+    io:format("..~n", []),
     resize_window(?WIDTH, ?HEIGHT).
 
 resize_window(Width, Height) ->
+    io:format("Setting video mode.", []),
     case sdl_video:setVideoMode(Width, Height, ?BPP,
                                 ?SDL_HWSURFACE bor
                                 ?SDL_RESIZABLE bor
                                 ?SDL_DOUBLEBUF) of
         error ->
-            io:format("Can't set video mode~n", []),
+            io:format("..~nCan't set video mode~n", []),
             error;
         Surface ->
+            io:format("..~n", []),
             sdl_video:gl_setAttribute(?SDL_GL_DOUBLEBUFFER, 1),
             Surface
     end.
@@ -58,10 +66,20 @@ loop(State) ->
             loop(NewState#state{delay = Delay - 1})
     end.
 
-render(#state{window = Window, game = Game, sprites = Sprites}) ->
+render(#state{window = Window, game = Game,
+              sprites = Sprites, font = Font}) ->
     sdl_video:fillRect(Window, null, sdl_video:mapRGB(Window, 0, 0, 0)),
+    sdl_video:fillRect(Window,
+                       #sdl_rect{x=0,y=0,w=320,h=640},
+                       sdl_video:mapRGB(Window, 10, 10, 10)),
+    NextPiece = game:next(Game),
+    NextShape = piece:shape(NextPiece),
     lists:foreach(fun (Block) -> draw_block(Block, Window, Sprites) end,
-                  game:blocks(Game)),
+                  game:blocks(Game) ++
+                  [{Coord, NextShape} ||
+                      Coord <- piece:blocks(piece:translate(NextPiece, {6,-2}))]),
+    draw_string("SCORE: " ++ integer_to_list(game:score(Game)),
+                Font, 320, 160, Window),
     sdl_video:flip(Window).
 
 origin(Width, Height) ->
@@ -79,9 +97,34 @@ draw_block(_Block = {{X, Y}, Shape}, Window, Sprites) ->
                      w = round(Width), h = round(Height)},
     sdl_video:blitSurface(Sprite, Source, Window, Dest).
 
+draw_string(S, Font, X, Y, Window) ->
+    draw_string(S, Font, X, Y, Window, 0).
+
+draw_string([], _Font, _X, _Y, _Window, _I) ->
+    ok;
+draw_string([C | S], Font, X, Y, Window, I) ->
+    draw_char(C, Font, X + I * 9, Y, Window),
+    draw_string(S, Font, X, Y, Window, I + 1).
+
+draw_char(C, Font, X, Y, Window)
+  when C >= $0, C =< $9 ->
+    Source = #sdl_rect{x = 66 + (C - $0) * 9, y = 1, w = 8, h = 8},
+    Dest   = #sdl_rect{x = X, y = Y, w = 8, h = 8},
+    sdl_video:blitSurface(Font, Source, Window, Dest);
+draw_char(C, Font, X, Y, Window)
+  when C >= $A, C =< $Z ->
+    Source = #sdl_rect{x = 191 + (C - $A) * 9, y = 1, w = 8, h = 8},
+    Dest   = #sdl_rect{x = X, y = Y, w = 8, h = 8},
+    sdl_video:blitSurface(Font, Source, Window, Dest);
+draw_char(_C, _Font, _X, _Y, _Window) ->
+    ok.
+
 load_sprites(L) ->
     [{Shape, sdl_video:loadBMP("src/sprites/" ++ atom_to_list(Shape) ++ ".bmp")}
      || Shape <- L].
+
+load_font(FontName) ->
+    sdl_video:loadBMP("fonts/" ++ FontName).
 
 handle_event(State = #state{game = Game}) ->
     case sdl_events:pollEvent() of 
