@@ -169,7 +169,7 @@ handle_event(State = #state{game = Game}) ->
     end.
 
 delay(Level) ->
-    case 20 - Level of
+    case round(20 - 20 * math:pow(0.9, 20 - Level)) of
         NewDelay when NewDelay < 0 ->
             0;
         NewDelay ->
