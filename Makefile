@@ -10,4 +10,4 @@ clean:
 	rm -f ebin/*.beam
 
 run:
-	erl -sname 'terltris' -pa $(ESDLDIR)/ebin ebin -eval 'gui:init(10,20).'
+	erl -sname 'terltris' -pa $(ESDLDIR)/ebin ebin -noshell -eval 'gui:init(10,20).'

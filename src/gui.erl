@@ -102,13 +102,10 @@ origin(Width, Height) ->
 
 draw_block(_Block = {{X, Y}, Shape}, Window, Sprites) ->
     {value, {_Shape, Sprite}} = lists:keysearch(Shape, 1, Sprites),
-    Source = #sdl_rect{x = 0, y = 0, w = 32, h = 32},
-    #sdl_surface{w = WWidth, h = WHeight} = sdl_video:getSurface(Window),
-    %%Width = WWidth/10, Height = WHeight/20,
     Width = Height = 32,
-    Dest = #sdl_rect{x = round(X*Width), y = round(-Y*Width),
-                     w = round(Width), h = round(Height)},
-    sdl_video:blitSurface(Sprite, Source, Window, Dest).
+    Dest = #sdl_rect{x = X*Width, y = -Y*Width,
+                     w = Width, h = Height},
+    sdl_video:blitSurface(Sprite, null, Window, Dest).
 
 draw_string(S, Font, X, Y, Window) ->
     draw_string(S, Font, X, Y, Window, 0).
