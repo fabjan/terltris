@@ -1,7 +1,7 @@
 -module(piece).
 -author('sempetmer@gmail.com').
 
--compile(export_all).
+-export([shape/1, blocks/1, new/0, rotate/2, translate/2]).
 
 -record(piece, {shape, pos, blocks}).
 shape(#piece{shape = Shape}) ->
@@ -41,14 +41,14 @@ construct(z) ->
 
 rotate(Piece = #piece{blocks = Blocks}, D)
   when D == r; D == l ->
-    Piece#piece{blocks = [rotate(Block, D) || Block <- Blocks]};
-rotate({X,Y}, r) ->
+    Piece#piece{blocks = [rotate1(Block, D) || Block <- Blocks]}.
+rotate1({X,Y}, r) ->
     {0 + Y, 0 - X};
-rotate({X,Y}, l) ->
+rotate1({X,Y}, l) ->
     {0 - Y, 0 + X}.
 
 translate(Piece = #piece{pos = Pos}, Delta) ->
-    Piece#piece{pos = translate(Pos, Delta)};
+    Piece#piece{pos = translate1(Pos, Delta)}.
 
-translate({X, Y}, {Dx, Dy}) ->
+translate1({X, Y}, {Dx, Dy}) ->
     {X + Dx, Y + Dy}.
