@@ -1,6 +1,6 @@
 -module(game).
 
--author('sempetmer@gmail.com').
+-author('fabian@fmbb.se').
 
 -compile(export_all).
 

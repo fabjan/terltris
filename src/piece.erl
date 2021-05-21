@@ -1,7 +1,6 @@
 -module(piece).
 
--author('sempetmer@gmail.com').
-
+-author('fabian@fmbb.se').
 
 -record(piece, {shape, pos, blocks}).
 

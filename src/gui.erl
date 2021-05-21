@@ -1,6 +1,6 @@
 -module(gui).
 
--author('sempetmer@gmail.com').
+-author('fabian@fmbb.se').
 
 -include("sdl.hrl").
 -include("sdl_events.hrl").
