@@ -2,20 +2,20 @@
 
 -author('fabian@fmbb.se').
 
--export([run/0, start/0]).
+-include_lib("deps/esdl2/include/sdl_keycode.hrl").
+-include_lib("deps/esdl2/include/sdl_scancode.hrl").
+
+-export([run/2, start/0]).
 
 -define(WIDTH, 480).
 -define(HEIGHT, 640).
 
-run() ->
-    init().
-
 start() ->
-    spawn(fun init/0).
+    spawn(fun() -> run(10, 20) end).
 
-init() ->
+run(BoardWidth, BoardHeight) ->
     %% setup game
-    Game = game:new(?WIDTH, ?HEIGHT),
+    Game = game:new(BoardWidth, BoardHeight),
 
     %% setup SDL
     ok = sdl:start([video]),
@@ -33,27 +33,92 @@ init() ->
            renderer => Renderer,
            font => Font,
            sprites => Sprites,
+           ticker => 0,
            game => Game}).
 
-loop(State) ->
-    events_loop(),
-    render(State),
-    loop(State).
+-define(LOOP_TICK, 16).
+-define(MAX_TICKS, 20).
+-define(LEVEL_SPEEDUP, 0.1).
 
-events_loop() ->
-    case sdl_events:poll() of
-        false ->
-            ok;
-        #{type := quit} ->
+loop(State) ->
+    case update(State) of
+        quit ->
             terminate();
-        _ ->
-            events_loop()
+        NextState ->
+            render(NextState),
+            timer:sleep(?LOOP_TICK), %% TODO game loop?
+            loop(NextState)
     end.
 
-render(#{renderer := Renderer,
-         font := Font,
-         sprites := Sprites,
-         game := Game}) ->
+update(State) ->
+    NextState = events_loop(State),
+    update_game(NextState).
+
+update_game(State = #{ticker := 0, game := Game}) ->
+    State#{ticker => tick_time(game:level(Game)), game => game:tick(Game)};
+update_game(State = #{ticker := Tick}) ->
+    State#{ticker => Tick - 1}.
+
+%% this could be calculated once per level
+tick_time(Level) ->
+    Speedup = math:pow(1 - ?LEVEL_SPEEDUP, ?MAX_TICKS - Level),
+    Time = round(?MAX_TICKS - ?MAX_TICKS * Speedup),
+    max(Time, 0).
+
+events_loop(State = #{window := Window}) ->
+    case sdl_events:poll() of
+        false ->
+            State;
+        #{type := quit} ->
+            quit;
+        #{type := key_down,
+          state := pressed,
+          sym := Sym} ->
+            handle_keypressed(State, Sym);
+        #{type := resize,
+          w := W,
+          h := H} ->
+            sdl_window:set_size(Window, W, H),
+            State;
+        _ ->
+            events_loop(State)
+    end.
+
+-define(KEY_LEFT, ?SDLK_LEFT).
+-define(KEY_RIGHT, ?SDLK_RIGHT).
+-define(KEY_ROTATE, ?SDLK_UP).
+-define(KEY_CONTINUE, ?SDLK_DOWN).
+-define(KEY_DROP, ?SDLK_SPACE).
+-define(KEY_QUIT, ?SDLK_ESCAPE).
+
+handle_keypressed(State = #{game := Game}, ?KEY_RIGHT) ->
+    State#{game => game:move_right(Game)};
+handle_keypressed(State = #{game := Game}, ?KEY_LEFT) ->
+    State#{game => game:move_left(Game)};
+handle_keypressed(State = #{game := Game}, ?KEY_ROTATE) ->
+    State#{game => game:rotate(Game)};
+handle_keypressed(State, ?KEY_CONTINUE) ->
+    State#{ticker => 0};
+handle_keypressed(State = #{game := Game}, ?KEY_DROP) ->
+    State#{game => game:drop(Game)};
+handle_keypressed(_, ?KEY_QUIT) ->
+    quit.
+
+%%
+%% render helpers
+%%
+
+-define(TEXT_X, 352).
+-define(TEXT_Y, 192).
+
+ui_string(LineNo, S, Renderer, Font) ->
+    blit_string(S, Font, ?TEXT_X, ?TEXT_Y + lines(LineNo), Renderer).
+
+render(State =
+           #{renderer := Renderer,
+             font := Font,
+             sprites := Sprites,
+             game := Game}) ->
     ok = sdl_renderer:clear(Renderer),
 
     %% render the board
@@ -69,8 +134,6 @@ render(#{renderer := Renderer,
 
     %% render info aside
     %% TODO figure out what the hell is doing this formatting (erlang-ls via rebar?)
-    LevelInfo = io_lib:format("LEVEL: ~B", [game:level(Game)]),
-    ScoreInfo = io_lib:format("SCORE: ~B", [game:score(Game)]),
     NextPiece =
         piece:translate(
             game:next(Game), {6, -2}),
@@ -79,19 +142,35 @@ render(#{renderer := Renderer,
     Preview = [{Coord, NextShape} || Coord <- NextBlocks],
     [blit_block(Block, Renderer, Sprites) || Block <- Preview],
 
-    TextX = 352,
-    TextY = 192,
-    ok = blit_string(LevelInfo, Font, TextX, TextY, Renderer),
-    ok = blit_string(ScoreInfo, Font, TextX, TextY + lines(1), Renderer),
-    case game:live(Game) of
-        no ->
-            ok = blit_string("GAME OVER MAN", Font, TextX, TextY + lines(2), Renderer);
-        _ ->
-            ok
-    end,
+    LevelInfo =
+        case game:live(Game) of
+            yes ->
+                io_lib:format("LEVEL: ~B", [game:level(Game)]);
+            _ ->
+                "GAME OVER, MAN"
+        end,
+    ScoreInfo = io_lib:format("SCORE: ~B", [game:score(Game)]),
+    ui_string(0, LevelInfo, Renderer, Font),
+    ui_string(1, ScoreInfo, Renderer, Font),
 
-    ok = blit_string("TERLTRIS", Font, 100, 400, Renderer),
+    debug_render(State),
     ok = sdl_renderer:present(Renderer).
+
+-ifdef(debugging).
+
+debug_render(#{renderer := Renderer,
+               font := Font,
+               ticker := Ticker}) ->
+    ui_string(-8, io_lib:format("TICKER ~B", [Ticker]), Renderer, Font),
+    ui_string(-7, "DEBUGGING", Renderer, Font).
+
+-else.
+
+debug_render(_) ->
+    %% maybe render fps always?
+    ok.
+
+-endif.
 
 terminate() ->
     init:stop(),
@@ -100,14 +179,13 @@ terminate() ->
 %%
 %% block helpers
 %%
-
 -define(BLOCK_SIZE, 32).
 
 block_rect_at(X, Y) ->
     #{w => ?BLOCK_SIZE,
       h => ?BLOCK_SIZE,
       x => X * ?BLOCK_SIZE,
-      y => -Y * ?BLOCK_SIZE}.
+      y => Y * ?BLOCK_SIZE}.
 
 load_shape_textures(Renderer, Shapes) ->
     [{Shape, load_block_texture(Renderer, Shape)} || Shape <- Shapes].
@@ -121,7 +199,8 @@ blit_block({{X, Y}, Shape}, Renderer, Sprites) ->
     %% TODO maps are a thing in Erlang now!
     {value, {_, Sprite}} = lists:keysearch(Shape, 1, Sprites),
     Dst = block_rect_at(X, -Y),
-    sdl_renderer:copy(Renderer, Sprite, undefined, Dst).
+    %%io:format("blit block @ ~p~n", [Dst]),
+    ok = sdl_renderer:copy(Renderer, Sprite, undefined, Dst).
 
 %%
 %% bitmap font helpers
@@ -161,13 +240,13 @@ blit_digit(C, Font, X, Y, Renderer) ->
     PaddedSize = ?FONT_SIZE + ?LETTER_SPACING,
     Src = char_rect_at(?X_ZERO + PaddedSize * (C - $0), 1),
     Dst = move(Src, X, Y),
-    sdl_renderer:copy(Renderer, Font, Src, Dst).
+    ok = sdl_renderer:copy(Renderer, Font, Src, Dst).
 
 blit_letter(C, Font, X, Y, Renderer) ->
     PaddedSize = ?FONT_SIZE + ?LETTER_SPACING,
     Src = char_rect_at(?X_A + PaddedSize * (C - $A), 1),
     Dst = move(Src, X, Y),
-    sdl_renderer:copy(Renderer, Font, Src, Dst).
+    ok = sdl_renderer:copy(Renderer, Font, Src, Dst).
 
 %%
 %% rect helpers

@@ -12,7 +12,7 @@ shape(#piece{shape = Shape}) ->
     Shape.
 
 blocks(#piece{pos = Pos, blocks = Blocks}) ->
-    [translate1(Pos, Block) || Block <- Blocks].
+    [translate1(Block, Pos) || Block <- Blocks].
 
 %% should be called random
 new() ->

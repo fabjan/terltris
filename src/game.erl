@@ -161,6 +161,7 @@ fall(Blocks, {{_, RY}, _}) ->
               end,
               Blocks).
 
+%% TODO this is probably not very efficient
 drop(Game = #game{current_piece = Piece}) ->
     NewPiece = piece:translate(Piece, {0, -1}),
     case lists:any(fun(Coord) -> hit(Coord, Game) end, piece:blocks(NewPiece)) of
