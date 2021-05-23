@@ -2,18 +2,23 @@
 
 -author('fabian@fmbb.se').
 
+-export([new/0]).
+-export([rotate/2, translate/2]).
+-export([blocks/1, shape/1]).
+
 -record(piece, {shape, pos, blocks}).
 
 shape(#piece{shape = Shape}) ->
     Shape.
 
 blocks(#piece{pos = Pos, blocks = Blocks}) ->
-    [translate(Pos, Block) || Block <- Blocks].
+    [translate1(Pos, Block) || Block <- Blocks].
 
+%% should be called random
 new() ->
     Shape =
         lists:nth(
-            random:uniform(7), [i, j, l, o, s, t, z]),
+            rand:uniform(7), [i, j, l, o, s, t, z]),
     #piece{shape = Shape,
            pos = {0, 0},
            blocks = construct(Shape)}.

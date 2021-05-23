@@ -2,7 +2,9 @@
 
 -author('fabian@fmbb.se').
 
--compile(export_all).
+-export([new/2, tick/1]).
+-export([blocks/1, level/1, live/1, next/1, score/1]).
+-export([drop/1, move_left/1, move_right/1, rotate/1]).
 
 -record(game,
         {width,
@@ -14,12 +16,6 @@
          next_level = 10,
          score = 0,
          live = yes}).
-
-width(#game{width = Width}) ->
-    Width.
-
-height(#game{height = Height}) ->
-    Height.
 
 next(#game{next_piece = Next}) ->
     Next.
@@ -49,15 +45,6 @@ blocks(#game{current_piece = undefined, ground = Ground}) ->
 blocks(#game{current_piece = Piece, ground = Ground}) ->
     Shape = piece:shape(Piece),
     [{Coord, Shape} || Coord <- piece:blocks(Piece)] ++ Ground.
-
-get_block(Game, Coord) ->
-    Blocks = blocks(Game),
-    case lists:keysearch(Coord, 1, Blocks) of
-        {value, {_, Shape}} ->
-            Shape;
-        _ ->
-            undefined
-    end.
 
 move_left(Game = #game{live = no}) ->
     Game;
@@ -165,7 +152,7 @@ chomp(Blocks, []) ->
 chomp(Blocks, [Row | Rows]) ->
     chomp(fall(Blocks, Row), Rows).
 
-fall(Blocks, Row = {{_RX, RY}, _RS}) ->
+fall(Blocks, {{_, RY}, _}) ->
     lists:map(fun({{BX, BY}, BS}) ->
                  case BY >= RY of
                      true -> {{BX, BY - 1}, BS};
