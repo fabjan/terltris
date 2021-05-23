@@ -1,1 +1,6 @@
 ebin
+terltris
+
+.erlang.mk
+deps
+*.d

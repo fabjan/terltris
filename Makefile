@@ -1,13 +1,17 @@
-ESDLDIR=/usr/lib/erlang/lib/esdl-0.96.0626
+PROJECT = terltris
+PROG = $(PROJECT)
+DEPS = esdl2
 
-all: compile
+# This branch is hacked to make builds with newer clang to work
+# see https://github.com/ninenines/nif_helpers/issues/2
+dep_esdl2 = git https://github.com/fabjan/esdl2/ fabian
 
-compile:
-	@mkdir -p ebin
-	@erl -make
+include erlang.mk
 
-clean:
-	rm -f ebin/*.beam
+# TODO temp while converting
+ERLC_OPTS := $(filter-out -Werror,$(ERLC_OPTS))
 
-run:
-	erl -sname 'terltris' -pa $(ESDLDIR)/ebin ebin -noshell -eval 'gui:init(10,20).'
+# TODO package as release? relx.config + make rel
+$(PROG): all
+	cp script/run.escript $@
+	chmod a+x $@

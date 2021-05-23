@@ -2,196 +2,179 @@
 
 -author('fabian@fmbb.se').
 
--include("sdl.hrl").
--include("sdl_events.hrl").
--include("sdl_video.hrl").
--include("sdl_keyboard.hrl").
--include("gl.hrl").
-
--compile(export_all).
-
--record(state, {window, game, sprites, font, delay = 0}).
+-export([run/0, start/0]).
 
 -define(WIDTH, 480).
 -define(HEIGHT, 640).
--define(BPP, 24).
 
-init(Width, Height) ->
-    case init_video() of
-        error ->
-            sdl:quit(),
-            error;
-        Window ->
-            sdl_video:wm_setCaption("terltris", 0),
-            {A, B, C} = now(),
-            random:seed(A, B, C),
-            Game = game:new(Width, Height),
-            Sprites = load_sprites([g, i, j, l, o, s, t, z]),
-            [sdl_video:setColorKey(Sprite, ?SDL_SRCCOLORKEY, sdl_video:mapRGB(Sprite, 0, 0, 0))
-             || {_Shape, Sprite} <- Sprites],
-            Font = load_font("mario3.bmp"),
-            sdl_video:setColorKey(Font, ?SDL_SRCCOLORKEY, sdl_video:mapRGB(Font, 255, 0, 255)),
-            loop(#state{window = Window,
-                        game = Game,
-                        sprites = Sprites,
-                        font = Font}),
-            sdl:quit()
-    end.
+run() ->
+    init().
 
-init_video() ->
-    io:format("Initializing SDL.", []),
-    sdl:init(?SDL_INIT_VIDEO),
-    io:format("..~n", []),
-    resize_window(?WIDTH, ?HEIGHT).
+start() ->
+    spawn(fun init/0).
 
-resize_window(Width, Height) ->
-    io:format("Setting video mode.", []),
-    case sdl_video:setVideoMode(Width,
-                                Height,
-                                ?BPP,
-                                ?SDL_HWSURFACE bor ?SDL_RESIZABLE bor ?SDL_DOUBLEBUF)
-    of
-        error ->
-            io:format("..~nCan't set video mode~n", []),
-            error;
-        Surface ->
-            io:format("..~n", []),
-            sdl_video:gl_setAttribute(?SDL_GL_DOUBLEBUFFER, 1),
-            Surface
-    end.
+init() ->
+    %% setup game
+    Game = game:new(?WIDTH, ?HEIGHT),
+
+    %% setup SDL
+    ok = sdl:start([video]),
+    ok = sdl:stop_on_exit(),
+    {ok, Window} = sdl_window:create(<<"terltris">>, 10, 10, ?WIDTH, ?HEIGHT, []),
+    {ok, Renderer} = sdl_renderer:create(Window, -1, [accelerated, present_vsync]),
+
+    %% load assets
+    %% TODO replace with a PNG font, with transparency
+    {ok, Font} = sdl_texture:create_from_file(Renderer, "fonts/mario3.bmp"),
+    Sprites = load_shape_textures(Renderer, [g, i, j, l, o, s, t, z]),
+
+    %% loop de loop
+    loop(#{window => Window,
+           renderer => Renderer,
+           font => Font,
+           sprites => Sprites,
+           game => Game}).
 
 loop(State) ->
+    events_loop(),
     render(State),
-    NewState = handle_event(State),
-    case NewState of
-        quit ->
+    loop(State).
+
+events_loop() ->
+    case sdl_events:poll() of
+        false ->
             ok;
-        #state{delay = 0, game = NewGame} ->
-            loop(NewState#state{delay = delay(game:level(NewGame)), game = game:tick(NewGame)});
-        #state{delay = Delay} ->
-            loop(NewState#state{delay = Delay - 1})
+        #{type := quit} ->
+            terminate();
+        _ ->
+            events_loop()
     end.
 
-render(#state{window = Window,
-              game = Game,
-              sprites = Sprites,
-              font = Font}) ->
-    sdl_video:fillRect(Window, null, sdl_video:mapRGB(Window, 0, 0, 0)),
-    sdl_video:fillRect(Window,
-                       #sdl_rect{x = 0,
-                                 y = 0,
-                                 w = 320,
-                                 h = 640},
-                       sdl_video:mapRGB(Window, 10, 10, 10)),
-    NextPiece = game:next(Game),
+render(#{renderer := Renderer,
+         font := Font,
+         sprites := Sprites,
+         game := Game}) ->
+    ok = sdl_renderer:clear(Renderer),
+
+    %% render the board
+    Dst = #{x => 0,
+            y => 0,
+            w => 320,
+            h => 640},
+    ok = sdl_renderer:set_draw_color(Renderer, 10, 10, 10, 255),
+    ok = sdl_renderer:fill_rect(Renderer, Dst),
+
+    %% render game pieces
+    [blit_block(Block, Renderer, Sprites) || Block <- game:blocks(Game)],
+
+    %% render info aside
+    %% TODO figure out what the hell is doing this formatting (erlang-ls via rebar?)
+    LevelInfo = io_lib:format("LEVEL: ~B", [game:level(Game)]),
+    ScoreInfo = io_lib:format("SCORE: ~B", [game:score(Game)]),
+    NextPiece =
+        piece:translate(
+            game:next(Game), {6, -2}),
     NextShape = piece:shape(NextPiece),
-    lists:foreach(fun(Block) -> draw_block(Block, Window, Sprites) end,
-                  game:blocks(Game)
-                  ++ [{Coord, NextShape}
-                      || Coord
-                             <- piece:blocks(
-                                    piece:translate(NextPiece, {6, -2}))]),
-    draw_string("LEVEL: " ++ integer_to_list(game:level(Game)), Font, 352, 192, Window),
-    draw_string("SCORE: " ++ integer_to_list(game:score(Game)), Font, 352, 201, Window),
+    NextBlocks = piece:blocks(NextPiece),
+    Preview = [{Coord, NextShape} || Coord <- NextBlocks],
+    [blit_block(Block, Renderer, Sprites) || Block <- Preview],
+
+    TextX = 352,
+    TextY = 192,
+    ok = blit_string(LevelInfo, Font, TextX, TextY, Renderer),
+    ok = blit_string(ScoreInfo, Font, TextX, TextY + lines(1), Renderer),
     case game:live(Game) of
         no ->
-            draw_string("GAME OVER MAN", Font, 352, 210, Window);
+            ok = blit_string("GAME OVER MAN", Font, TextX, TextY + lines(2), Renderer);
         _ ->
             ok
     end,
-    sdl_video:flip(Window).
 
-origin(Width, Height) ->
-    Ratio = Width / Height,
-    Scale = 40,
-    {-Width / Scale, Height / (Scale / Ratio), -32}.
+    ok = blit_string("TERLTRIS", Font, 100, 400, Renderer),
+    ok = sdl_renderer:present(Renderer).
 
-draw_block(_Block = {{X, Y}, Shape}, Window, Sprites) ->
-    {value, {_Shape, Sprite}} = lists:keysearch(Shape, 1, Sprites),
-    Width = Height = 32,
-    Dest =
-        #sdl_rect{x = X * Width,
-                  y = -Y * Width,
-                  w = Width,
-                  h = Height},
-    sdl_video:blitSurface(Sprite, null, Window, Dest).
+terminate() ->
+    init:stop(),
+    exit(normal).
 
-draw_string(S, Font, X, Y, Window) ->
-    draw_string(S, Font, X, Y, Window, 0).
+%%
+%% block helpers
+%%
 
-draw_string([], _Font, _X, _Y, _Window, _I) ->
+-define(BLOCK_SIZE, 32).
+
+block_rect_at(X, Y) ->
+    #{w => ?BLOCK_SIZE,
+      h => ?BLOCK_SIZE,
+      x => X * ?BLOCK_SIZE,
+      y => -Y * ?BLOCK_SIZE}.
+
+load_shape_textures(Renderer, Shapes) ->
+    [{Shape, load_block_texture(Renderer, Shape)} || Shape <- Shapes].
+
+load_block_texture(Renderer, Shape) ->
+    Path = "src/sprites/" ++ atom_to_list(Shape) ++ ".bmp",
+    {ok, Texture} = sdl_texture:create_from_file(Renderer, Path),
+    Texture.
+
+blit_block({{X, Y}, Shape}, Renderer, Sprites) ->
+    %% TODO maps are a thing in Erlang now!
+    {value, {_, Sprite}} = lists:keysearch(Shape, 1, Sprites),
+    Dst = block_rect_at(X, -Y),
+    sdl_renderer:copy(Renderer, Sprite, undefined, Dst).
+
+%%
+%% bitmap font helpers
+%%
+-define(FONT_SIZE, 8).
+-define(LETTER_SPACING, 1).
+-define(X_ZERO, 66).
+-define(X_A, 191).
+
+lines(N) ->
+    N * (?FONT_SIZE + ?LETTER_SPACING).
+
+blit_string(S, Font, X, Y, Renderer) ->
+    blit_string(S, Font, X, Y, Renderer, 0).
+
+blit_string([], _, _, _, _, _) ->
     ok;
-draw_string([C | S], Font, X, Y, Window, I) ->
-    draw_char(C, Font, X + I * 9, Y, Window),
-    draw_string(S, Font, X, Y, Window, I + 1).
+blit_string([C | S], Font, X, Y, Renderer, I) ->
+    PaddedSize = ?FONT_SIZE + ?LETTER_SPACING,
+    CharX = X + PaddedSize * I,
+    if $0 =< C andalso C =< $9 ->
+           blit_digit(C, Font, CharX, Y, Renderer);
+       $A =< C andalso C =< $Z ->
+           blit_letter(C, Font, CharX, Y, Renderer);
+       true ->
+           ok
+    end,
+    blit_string(S, Font, X, Y, Renderer, I + 1).
 
-draw_char(C, Font, X, Y, Window) when C >= $0, C =< $9 ->
-    Source =
-        #sdl_rect{x = 66 + (C - $0) * 9,
-                  y = 1,
-                  w = 8,
-                  h = 8},
-    Dest =
-        #sdl_rect{x = X,
-                  y = Y,
-                  w = 8,
-                  h = 8},
-    sdl_video:blitSurface(Font, Source, Window, Dest);
-draw_char(C, Font, X, Y, Window) when C >= $A, C =< $Z ->
-    Source =
-        #sdl_rect{x = 191 + (C - $A) * 9,
-                  y = 1,
-                  w = 8,
-                  h = 8},
-    Dest =
-        #sdl_rect{x = X,
-                  y = Y,
-                  w = 8,
-                  h = 8},
-    sdl_video:blitSurface(Font, Source, Window, Dest);
-draw_char(_C, _Font, _X, _Y, _Window) ->
-    ok.
+char_rect_at(X, Y) ->
+    #{w => ?FONT_SIZE,
+      h => ?FONT_SIZE,
+      x => X,
+      y => Y}.
 
-load_sprites(L) ->
-    [{Shape, sdl_video:loadBMP("src/sprites/" ++ atom_to_list(Shape) ++ ".bmp")}
-     || Shape <- L].
+blit_digit(C, Font, X, Y, Renderer) ->
+    PaddedSize = ?FONT_SIZE + ?LETTER_SPACING,
+    Src = char_rect_at(?X_ZERO + PaddedSize * (C - $0), 1),
+    Dst = move(Src, X, Y),
+    sdl_renderer:copy(Renderer, Font, Src, Dst).
 
-load_font(FontName) ->
-    sdl_video:loadBMP("fonts/" ++ FontName).
+blit_letter(C, Font, X, Y, Renderer) ->
+    PaddedSize = ?FONT_SIZE + ?LETTER_SPACING,
+    Src = char_rect_at(?X_A + PaddedSize * (C - $A), 1),
+    Dst = move(Src, X, Y),
+    sdl_renderer:copy(Renderer, Font, Src, Dst).
 
-handle_event(State = #state{game = Game}) ->
-    case sdl_events:pollEvent() of
-        #quit{} ->
-            quit;
-        #resize{w = W, h = H} ->
-            resize_window(W, H),
-            State;
-        #keyboard{sym = ?SDLK_ESCAPE} ->
-            quit;
-        #keyboard{state = ?SDL_PRESSED, sym = Sym} ->
-            case Sym of
-                ?SDLK_RIGHT ->
-                    State#state{game = game:move_right(Game)};
-                ?SDLK_LEFT ->
-                    State#state{game = game:move_left(Game)};
-                ?SDLK_UP ->
-                    State#state{game = game:rotate(Game)};
-                ?SDLK_DOWN ->
-                    State#state{delay = 0};
-                ?SDLK_SPACE ->
-                    State#state{game = game:drop(Game)};
-                _ ->
-                    State
-            end;
-        _ ->
-            timer:sleep(10),
-            State
-    end.
+%%
+%% rect helpers
+%%
 
-delay(Level) ->
-    case round(20 - 20 * math:pow(0.9, 20 - Level)) of
-        NewDelay when NewDelay < 0 ->
-            0;
-        NewDelay ->
-            NewDelay
-    end.
+move(R, X, Y) ->
+    R#{x => X, y => Y}.
+
+%translate(R =   #{x := X, y := Y}, Dx, Dy) ->
+%    R#{x => X + Dx, y => Y + Dy}.
