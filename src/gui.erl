@@ -7,11 +7,36 @@
 
 -export([run/2, start/0]).
 
+%% Render settings
 -define(WIDTH, 480).
 -define(HEIGHT, 640).
+-define(BLOCK_SIZE, 32).
+%% Game settings
+-define(UI_TICK_MS, 16).
+-define(MAX_UI_TICKS_PER_GAME_TICK, 60).
+-define(LEVEL_SPEEDUP, 0.1).
+%% Controls
+-define(KEY_LEFT, ?SDLK_LEFT).
+-define(KEY_RIGHT, ?SDLK_RIGHT).
+-define(KEY_ROTATE, ?SDLK_UP).
+-define(KEY_SOFT_DROP, ?SDLK_DOWN).
+-define(KEY_HARD_DROP, ?SDLK_SPACE).
+-define(KEY_QUIT, ?SDLK_ESCAPE).
+%% UI settings
+-define(TEXT_X, 352).
+-define(TEXT_Y, 192).
+%% Font settings
+-define(FONT_SIZE, 8).
+-define(LETTER_SPACING, 1).
+-define(X_ZERO, 66).
+-define(X_A, 191).
 
 start() ->
     spawn(fun() -> run(10, 20) end).
+
+terminate() ->
+    init:stop(),
+    exit(normal).
 
 run(BoardWidth, BoardHeight) ->
     %% setup game
@@ -20,7 +45,7 @@ run(BoardWidth, BoardHeight) ->
     %% setup SDL
     ok = sdl:start([video]),
     ok = sdl:stop_on_exit(),
-    {ok, Window} = sdl_window:create(<<"terltris">>, 10, 10, ?WIDTH, ?HEIGHT, []),
+    {ok, Window} = sdl_window:create(<<"terltris">>, 10, 10, ?WIDTH, ?HEIGHT, [resizable]),
     {ok, Renderer} = sdl_renderer:create(Window, -1, [accelerated, present_vsync]),
 
     %% load assets
@@ -36,22 +61,18 @@ run(BoardWidth, BoardHeight) ->
            ticker => 0,
            game => Game}).
 
--define(LOOP_TICK, 16).
--define(MAX_TICKS, 20).
--define(LEVEL_SPEEDUP, 0.1).
-
 loop(State) ->
     case update(State) of
         quit ->
             terminate();
         NextState ->
             render(NextState),
-            timer:sleep(?LOOP_TICK), %% TODO game loop?
+            timer:sleep(?UI_TICK_MS), %% TODO game loop?
             loop(NextState)
     end.
 
 update(State) ->
-    NextState = events_loop(State),
+    NextState = drain_events(State),
     update_game(NextState).
 
 update_game(State = #{ticker := 0, game := Game}) ->
@@ -60,12 +81,16 @@ update_game(State = #{ticker := Tick}) ->
     State#{ticker => Tick - 1}.
 
 %% this could be calculated once per level
+%% TODO implement proper level ups,
+%%      move ticking into game module
 tick_time(Level) ->
-    Speedup = math:pow(1 - ?LEVEL_SPEEDUP, ?MAX_TICKS - Level),
-    Time = round(?MAX_TICKS - ?MAX_TICKS * Speedup),
+    MaxTicks = ?MAX_UI_TICKS_PER_GAME_TICK,
+    Speedup = math:pow(1 - ?LEVEL_SPEEDUP, MaxTicks - Level),
+    Time = round(MaxTicks - MaxTicks * Speedup),
     max(Time, 0).
 
-events_loop(State = #{window := Window}) ->
+%% TODO lift cases out to function clauses
+drain_events(State = #{window := Window}) ->
     case sdl_events:poll() of
         false ->
             State;
@@ -74,22 +99,16 @@ events_loop(State = #{window := Window}) ->
         #{type := key_down,
           state := pressed,
           sym := Sym} ->
-            handle_keypressed(State, Sym);
+            NewState = handle_keypressed(State, Sym),
+            drain_events(NewState);
         #{type := resize,
           w := W,
           h := H} ->
             sdl_window:set_size(Window, W, H),
-            State;
+            drain_events(State);
         _ ->
-            events_loop(State)
+            drain_events(State)
     end.
-
--define(KEY_LEFT, ?SDLK_LEFT).
--define(KEY_RIGHT, ?SDLK_RIGHT).
--define(KEY_ROTATE, ?SDLK_UP).
--define(KEY_CONTINUE, ?SDLK_DOWN).
--define(KEY_DROP, ?SDLK_SPACE).
--define(KEY_QUIT, ?SDLK_ESCAPE).
 
 handle_keypressed(State = #{game := Game}, ?KEY_RIGHT) ->
     State#{game => game:move_right(Game)};
@@ -97,10 +116,10 @@ handle_keypressed(State = #{game := Game}, ?KEY_LEFT) ->
     State#{game => game:move_left(Game)};
 handle_keypressed(State = #{game := Game}, ?KEY_ROTATE) ->
     State#{game => game:rotate(Game)};
-handle_keypressed(State, ?KEY_CONTINUE) ->
-    State#{ticker => 0};
-handle_keypressed(State = #{game := Game}, ?KEY_DROP) ->
-    State#{game => game:drop(Game)};
+handle_keypressed(State = #{game := Game}, ?KEY_SOFT_DROP) ->
+    State#{ticker => 0, game => game:soft_drop(Game)};
+handle_keypressed(State = #{game := Game}, ?KEY_HARD_DROP) ->
+    State#{game => game:hard_drop(Game)};
 handle_keypressed(_, ?KEY_QUIT) ->
     quit.
 
@@ -108,26 +127,30 @@ handle_keypressed(_, ?KEY_QUIT) ->
 %% render helpers
 %%
 
--define(TEXT_X, 352).
--define(TEXT_Y, 192).
-
-ui_string(LineNo, S, Renderer, Font) ->
-    blit_string(S, Font, ?TEXT_X, ?TEXT_Y + lines(LineNo), Renderer).
-
 render(State =
            #{renderer := Renderer,
+             window := Window,
              font := Font,
              sprites := Sprites,
              game := Game}) ->
-    ok = sdl_renderer:clear(Renderer),
+    {W, H} = sdl_window:get_size(Window),
+    Backdrop =
+        #{x => 0,
+          y => 0,
+          w => W,
+          h => H},
+    ok = sdl_renderer:set_draw_color(Renderer, 50, 50, 50, 255),
+    ok = sdl_renderer:fill_rect(Renderer, Backdrop),
 
     %% render the board
-    Dst = #{x => 0,
-            y => 0,
-            w => 320,
-            h => 640},
+    {Wg, Hg} = game:get_size(Game),
+    Well =
+        #{x => 0,
+          y => 0,
+          w => Wg * ?BLOCK_SIZE,
+          h => Hg * ?BLOCK_SIZE},
     ok = sdl_renderer:set_draw_color(Renderer, 10, 10, 10, 255),
-    ok = sdl_renderer:fill_rect(Renderer, Dst),
+    ok = sdl_renderer:fill_rect(Renderer, Well),
 
     %% render game pieces
     [blit_block(Block, Renderer, Sprites) || Block <- game:blocks(Game)],
@@ -136,7 +159,7 @@ render(State =
     %% TODO figure out what the hell is doing this formatting (erlang-ls via rebar?)
     NextPiece =
         piece:translate(
-            game:next(Game), {6, -2}),
+            game:next(Game), {Wg div 2 + 2, -2}),
     NextShape = piece:shape(NextPiece),
     NextBlocks = piece:blocks(NextPiece),
     Preview = [{Coord, NextShape} || Coord <- NextBlocks],
@@ -161,8 +184,8 @@ render(State =
 debug_render(#{renderer := Renderer,
                font := Font,
                ticker := Ticker}) ->
-    ui_string(-8, io_lib:format("TICKER ~B", [Ticker]), Renderer, Font),
-    ui_string(-7, "DEBUGGING", Renderer, Font).
+    ui_string(11, io_lib:format("TICKER ~B", [Ticker]), Renderer, Font),
+    ui_string(10, "DEBUGGING", Renderer, Font).
 
 -else.
 
@@ -172,14 +195,12 @@ debug_render(_) ->
 
 -endif.
 
-terminate() ->
-    init:stop(),
-    exit(normal).
+ui_string(LineNo, S, Renderer, Font) ->
+    blit_string(S, Font, ?TEXT_X, ?TEXT_Y + lines(LineNo), Renderer).
 
 %%
 %% block helpers
 %%
--define(BLOCK_SIZE, 32).
 
 block_rect_at(X, Y) ->
     #{w => ?BLOCK_SIZE,
@@ -205,10 +226,6 @@ blit_block({{X, Y}, Shape}, Renderer, Sprites) ->
 %%
 %% bitmap font helpers
 %%
--define(FONT_SIZE, 8).
--define(LETTER_SPACING, 1).
--define(X_ZERO, 66).
--define(X_A, 191).
 
 lines(N) ->
     N * (?FONT_SIZE + ?LETTER_SPACING).
@@ -222,38 +239,26 @@ blit_string([C | S], Font, X, Y, Renderer, I) ->
     PaddedSize = ?FONT_SIZE + ?LETTER_SPACING,
     CharX = X + PaddedSize * I,
     if $0 =< C andalso C =< $9 ->
-           blit_digit(C, Font, CharX, Y, Renderer);
+           blit_char(digit_src(C), Font, CharX, Y, Renderer);
        $A =< C andalso C =< $Z ->
-           blit_letter(C, Font, CharX, Y, Renderer);
+           blit_char(letter_src(C), Font, CharX, Y, Renderer);
        true ->
            ok
     end,
     blit_string(S, Font, X, Y, Renderer, I + 1).
 
-char_rect_at(X, Y) ->
+char_src(Offset, I) ->
     #{w => ?FONT_SIZE,
       h => ?FONT_SIZE,
-      x => X,
-      y => Y}.
+      x => Offset + I * (?FONT_SIZE + ?LETTER_SPACING),
+      y => 1}.
 
-blit_digit(C, Font, X, Y, Renderer) ->
-    PaddedSize = ?FONT_SIZE + ?LETTER_SPACING,
-    Src = char_rect_at(?X_ZERO + PaddedSize * (C - $0), 1),
-    Dst = move(Src, X, Y),
+digit_src(C) ->
+    char_src(?X_ZERO, C - $0).
+
+letter_src(C) ->
+    char_src(?X_A, C - $A).
+
+blit_char(Src, Font, X, Y, Renderer) ->
+    Dst = Src#{x => X, y => Y},
     ok = sdl_renderer:copy(Renderer, Font, Src, Dst).
-
-blit_letter(C, Font, X, Y, Renderer) ->
-    PaddedSize = ?FONT_SIZE + ?LETTER_SPACING,
-    Src = char_rect_at(?X_A + PaddedSize * (C - $A), 1),
-    Dst = move(Src, X, Y),
-    ok = sdl_renderer:copy(Renderer, Font, Src, Dst).
-
-%%
-%% rect helpers
-%%
-
-move(R, X, Y) ->
-    R#{x => X, y => Y}.
-
-%translate(R =   #{x := X, y := Y}, Dx, Dy) ->
-%    R#{x => X + Dx, y => Y + Dy}.

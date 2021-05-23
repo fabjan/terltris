@@ -8,9 +8,8 @@ dep_esdl2 = git https://github.com/fabjan/esdl2/ fabian
 
 ERLC_OPTS = -Werror +debug_info +warn_export_vars +warn_shadow_vars +warn_obsolete_guard
 
-# TODO temp while converting
-ERLC_OPTS += -Ddebugging=1
-ERLC_OPTS := $(filter-out -Werror,$(ERLC_OPTS))
+# useful for debugging and development
+# ERLC_OPTS = -Ddebugging=1 +debug_info +warn_export_vars +warn_shadow_vars +warn_obsolete_guard
 
 # TODO package as release? relx.config + make rel
 $(PROG): all
